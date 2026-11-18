@@ -1,14 +1,15 @@
 {
   "name": "maxous-nav",
   "productName": "Maxou's Nav",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Maxou's Nav — navigateur rapide avec bloqueur de pubs intégré",
   "author": "Maxou",
   "main": "src/main.js",
   "scripts": {
     "start": "npm run bundle && electron .",
     "dist": "electron-builder --win",
-    "bundle": "esbuild src/preload.js --bundle --platform=node --external:electron --target=node20 --outfile=src/preload.bundle.js --log-level=warning"
+    "bundle": "esbuild src/preload.js --bundle --platform=node --external:electron --target=node20 --outfile=src/preload.bundle.js --log-level=warning",
+    "postinstall": "node scripts/patch-deps.js"
   },
   "dependencies": {
     "@ghostery/adblocker-electron": "^2.20.3",
