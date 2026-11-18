@@ -1,10 +1,10 @@
 # Publie automatiquement une nouvelle version de Maxou's Nav
-# dès qu'un tag "vX.Y.Z" est envoyé sur GitHub.
+# dès que le numéro de version change dans package.json (branche main).
 name: Publier une version
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -24,22 +24,35 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Vérifier que le tag correspond à package.json
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Nouvelle version à publier ?
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           V=$(node -p "require('./package.json').version")
-          [ "v$V" = "${GITHUB_REF_NAME}" ] || { echo "Le tag ${GITHUB_REF_NAME} ne correspond pas à la version $V de package.json"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if gh release view "v$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "La version $V est déjà publiée : rien à faire."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Nouvelle version $V : compilation et publication."
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Installer les dépendances
+        if: steps.ver.outputs.publish == 'true'
         run: npm ci
 
       - name: Listes anti-pubs à jour
+        if: steps.ver.outputs.publish == 'true'
         run: node scripts/update-adblock-lists.js
 
       - name: Compiler l'appli et la version portable
+        if: steps.ver.outputs.publish == 'true'
         run: npx electron-builder --win dir portable --publish never
 
       - name: Créer l'installateur
+        if: steps.ver.outputs.publish == 'true'
         shell: pwsh
         run: |
           $makensis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
@@ -56,13 +69,16 @@ jobs:
           Pop-Location
 
       - name: Fichier de mise à jour (latest.json)
+        if: steps.ver.outputs.publish == 'true'
         run: node scripts/make-latest.js
 
       - name: Publier la release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.ver.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          name: Maxou's Nav ${{ github.ref_name }}
+          tag_name: v${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Maxou's Nav ${{ steps.ver.outputs.version }}
           make_latest: true
           generate_release_notes: true
           body: |
@@ -71,13 +87,4 @@ jobs:
           files: |
             dist/Maxous-Nav-Installation-*.exe
             dist/Maxous-Nav-Portable-*.exe
-            dist/latest.json
-
-      - name: Garder les fichiers (lancement manuel)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: maxous-nav
-          path: |
-            dist/*.exe
             dist/latest.json

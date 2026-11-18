@@ -15,5 +15,5 @@ Une fois installé, Maxou's Nav **se met à jour tout seul**.
 
 ## Publier une nouvelle version
 1. Changer `version` dans `package.json` (par ex. `1.2.0`)
-2. Envoyer le code puis le tag : `git tag v1.2.0 && git push origin main v1.2.0`
+2. Envoyer le code sur la branche `main`
 3. GitHub Actions compile et publie la release tout seul, et les navigateurs installés se mettent à jour.
