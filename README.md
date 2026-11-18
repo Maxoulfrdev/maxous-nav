@@ -14,6 +14,6 @@ Une fois installé, Maxou's Nav **se met à jour tout seul**.
 - Thème sombre, effet Mica sur Windows 11
 
 ## Publier une nouvelle version
-1. Changer `version` dans `package.json`
-2. `npm install && ./scripts/build-release.sh`
-3. Créer une release GitHub `vX.Y.Z` avec les fichiers de `dist/` : l'installateur, la version portable et `latest.json`
+1. Changer `version` dans `package.json` (par ex. `1.2.0`)
+2. Envoyer le code puis le tag : `git tag v1.2.0 && git push origin main v1.2.0`
+3. GitHub Actions compile et publie la release tout seul, et les navigateurs installés se mettent à jour.
