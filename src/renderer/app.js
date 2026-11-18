@@ -3,6 +3,13 @@
 
 const NEWTAB = new URL('newtab.html', location.href).href;
 const HOME = NEWTAB;
+const SETTINGS_URL = 'maxou://parametres';
+const WEBSTORE = 'https://chromewebstore.google.com/category/extensions?hl=fr';
+let prefs = { startup: 'restore', startupPages: [], home: { mode: 'newtab', url: '' }, showHome: true, showBookmarksBar: true, bookmarks: [] };
+const isInternal = (url) => /^maxou:/i.test(url || '');
+function homeUrl() {
+  return prefs.home && prefs.home.mode === 'url' && prefs.home.url ? toUrl(prefs.home.url) : NEWTAB;
+}
 const SEARCH = 'https://www.google.com/search?q=';
 const SLEEP_AFTER = 10 * 60 * 1000; // onglets inutilisés mis en veille après 10 min
 const api = window.maxou;
@@ -34,12 +41,16 @@ const ICON_GLOBE = '<svg class="fav-default" viewBox="0 0 24 24"><circle cx="12"
 const ICON_SPARK = '<img class="fav" src="assets/logo.svg" alt="">';
 const ICON_SOUND = '<svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>';
 const ICON_MUTED = '<svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="m16 9.5 5 5M21 9.5l-5 5"/></svg>';
+const ICON_GEAR = '<svg class="fav-default" viewBox="0 0 24 24" style="color:var(--cyan)"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
 const ICON_X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
 // ================= Adresse : URL ou recherche Google =================
 function toUrl(text) {
   const t = text.trim();
   if (!t) return HOME;
+  if (/^(maxou|chrome|edge|about):\/*(parametres|settings)/i.test(t)) return SETTINGS_URL;
+  if (/^(maxou|chrome|edge|about):\/*extensions/i.test(t)) return SETTINGS_URL + '#extensions';
+  if (/^maxou:/i.test(t)) return t;
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t) || /^(about|data|file|view-source):/i.test(t)) return t;
   if (/^localhost(:\d+)?(\/.*)?$/i.test(t)) return 'http://' + t;
   if (/^\d{1,3}(\.\d{1,3}){3}(:\d+)?(\/.*)?$/.test(t)) return 'http://' + t;
@@ -49,6 +60,7 @@ function toUrl(text) {
 const isNewtab = (url) => !url || url.startsWith(NEWTAB);
 function displayUrl(url) {
   if (isNewtab(url)) return '';
+  if (isInternal(url)) return url;
   try {
     const u = new URL(url);
     if (u.hostname.endsWith('google.com') && u.pathname === '/search' && u.searchParams.get('q')) {
@@ -63,7 +75,7 @@ function createTab(url = HOME, opts = {}) {
   const { activate = true, asleep = false, title, favicon, index } = opts;
   const tab = {
     id: nextId++, url, wv: null, wcId: null,
-    title: title || (isNewtab(url) ? 'Nouvel onglet' : url),
+    title: title || (isNewtab(url) ? 'Nouvel onglet' : isInternal(url) ? 'Paramètres' : url),
     favicon: favicon || null,
     loading: false, zoom: 0, blocked: 0,
     audible: false, muted: false,
@@ -100,7 +112,8 @@ function createTab(url = HOME, opts = {}) {
   });
   setupTabDrag(tab);
 
-  if (!asleep) spawnWebview(tab);
+  if (isInternal(url)) tab.title = 'Paramètres';
+  else if (!asleep) spawnWebview(tab);
   else el.classList.add('asleep');
   renderTab(tab);
   layoutTabs();
@@ -115,6 +128,7 @@ function renderTab(tab) {
   let html;
   if (tab.loading) html = '<span class="spinner"></span>';
   else if (isNewtab(tab.url)) html = ICON_SPARK;
+  else if (isInternal(tab.url)) html = ICON_GEAR;
   else if (tab.favicon) html = `<img class="fav" src="${escapeAttr(tab.favicon)}" alt="">`;
   else html = ICON_GLOBE;
   if (ico.dataset.html !== html) {
@@ -141,6 +155,7 @@ function layoutTabs() {
 window.addEventListener('resize', layoutTabs);
 
 function spawnWebview(tab) {
+  if (isInternal(tab.url)) return;
   const wv = document.createElement('webview');
   wv.setAttribute('allowpopups', '');
   wv.setAttribute('webpreferences', 'contextIsolation=yes, spellcheck=no');
@@ -172,7 +187,11 @@ function wireWebview(tab) {
   paintBg();
 
   // Identifiant récupéré dès l'attache : le compteur de pubs ne rate rien
-  wv.addEventListener('did-attach', () => { try { tab.wcId = wv.getWebContentsId(); } catch {} });
+  wv.addEventListener('did-attach', () => {
+    try { tab.wcId = wv.getWebContentsId(); } catch {}
+    if (tab.onAttach) { const cbs = tab.onAttach; tab.onAttach = null; cbs.forEach((cb) => cb(tab.wcId)); }
+    if (tab.id === activeId && tab.wcId) api.ext.tabSelected(tab.wcId);
+  });
 
   wv.addEventListener('dom-ready', () => {
     try { tab.wcId = wv.getWebContentsId(); } catch {}
@@ -287,6 +306,10 @@ function activateTab(id) {
     t.el.classList.toggle('active', on);
     if (t.wv) t.wv.classList.toggle('active', on);
   }
+  const internal = isInternal(tab.url);
+  $('settings-view').hidden = !internal;
+  if (internal) window.renderSettings && window.renderSettings(tab.url.split('#')[1]);
+  if (tab.wcId) api.ext.tabSelected(tab.wcId);
   document.title = tab.title + " — Maxou's Nav";
   tab.el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   closeFind();
@@ -294,7 +317,7 @@ function activateTab(id) {
   updateToolbar();
   updateShield();
   if (isNewtab(tab.url)) focusAddress();
-  else if (document.activeElement === address) tab.wv.focus();
+  else if (document.activeElement === address && tab.wv) tab.wv.focus();
   saveSession();
 }
 
@@ -379,6 +402,11 @@ function updateToolbar() {
   siteIcon.className = isNewtab(url) ? 'search' : url.startsWith('https://') ? 'lock' : url.startsWith('http://') ? 'warn' : 'search';
   siteIcon.title = siteIcon.className === 'lock' ? 'Connexion sécurisée' : siteIcon.className === 'warn' ? 'Connexion non sécurisée' : '';
 
+  const starOk = /^https?:/i.test(url);
+  $('star').hidden = !starOk;
+  $('star').classList.toggle('on', starOk && !!findBookmark(url));
+  $('star').title = findBookmark(url) ? 'Modifier ce favori' : 'Ajouter aux favoris (Ctrl+D)';
+
   const pct = Math.round(Math.pow(1.2, t.zoom) * 100);
   zoomChip.textContent = t.zoom === 0 ? '' : pct + ' %';
   $('menu-zoom').textContent = pct + ' %';
@@ -398,11 +426,14 @@ function navigate(text) {
   if (!t) return;
   hideSuggestions();
   const url = toUrl(text);
+  if (isInternal(url)) { openSettings(url.split('#')[1]); address.blur(); return; }
+  const wasInternal = isInternal(t.url);
   t.url = url;
-  if (!t.wv) spawnWebview(t);
+  if (wasInternal) { t.title = displayUrl(url); renderTab(t); }
+  if (!t.wv) { spawnWebview(t); if (wasInternal) activateTab(t.id); }
   else t.wv.loadURL(url).catch(() => {});
   address.blur();
-  t.wv.focus();
+  if (t.wv) t.wv.focus();
   updateToolbar();
 }
 
@@ -755,11 +786,16 @@ function runCommand(cmd) {
     case 'next-tab': cycleTab(1); break;
     case 'prev-tab': cycleTab(-1); break;
     case 'focus-address': focusAddress(); break;
-    case 'reload': if (wv) wv.reload(); break;
+    case 'reload': if (wv) wv.reload(); else if (t && isInternal(t.url)) window.renderSettings(); break;
     case 'hard-reload': if (wv) wv.reloadIgnoringCache(); break;
     case 'back': if (wv && safe(() => wv.canGoBack(), false)) wv.goBack(); break;
     case 'forward': if (wv && safe(() => wv.canGoForward(), false)) wv.goForward(); break;
-    case 'home': navigate(HOME); break;
+    case 'home': navigate(homeUrl()); break;
+    case 'settings': openSettings(); break;
+    case 'extensions': openSettings('extensions'); break;
+    case 'webstore': createTab(WEBSTORE); break;
+    case 'bookmark': if (t && /^https?:/i.test(t.url)) openBookmarkPop(); break;
+    case 'toggle-bookmarks-bar': savePrefs({ showBookmarksBar: !prefs.showBookmarksBar }); break;
     case 'find': openFind(); break;
     case 'downloads': renderDownloads(); togglePop('dl', dlBtn); break;
     case 'dl-folder': api.download.folder(); break;
@@ -773,6 +809,7 @@ function runCommand(cmd) {
     case 'escape':
       if (!$('about').hidden) $('about').hidden = true;
       else if (!Object.values(pops).every((p) => p.hidden)) closePops();
+      else if (!$('bm-pop').hidden || !$('ctx').hidden) { $('bm-pop').hidden = true; $('ctx').hidden = true; }
       else if (!findbar.hidden) closeFind();
       else if (t && t.loading && wv) wv.stop();
       break;
@@ -792,5 +829,194 @@ api.on('open-tab', (url, foreground) => {
   return tab;
 });
 
+// ================= Paramètres / préférences =================
+function savePrefs(patch) {
+  prefs = { ...prefs, ...patch };
+  applyPrefs();
+  return api.prefs.set(patch);
+}
+function applyPrefs() {
+  $('home').hidden = prefs.showHome === false;
+  $('bookmarks-bar').hidden = !prefs.showBookmarksBar;
+  $('menu-bm-label').textContent = prefs.showBookmarksBar ? 'Masquer la barre de favoris' : 'Afficher la barre de favoris';
+  renderBookmarksBar();
+  updateToolbar();
+  const t = activeTab();
+  if (t && isInternal(t.url) && window.renderSettings) window.renderSettings();
+}
+api.on('prefs', (p) => { prefs = p; applyPrefs(); });
+
+function openSettings(section) {
+  const url = SETTINGS_URL + (section ? '#' + section : '');
+  const existing = tabs.find((t) => isInternal(t.url));
+  if (existing) { existing.url = url; activateTab(existing.id); window.renderSettings && window.renderSettings(section); }
+  else createTab(url);
+}
+
+// ================= Favoris =================
+const bmId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const normUrl = (u) => (u || '').replace(/#.*$/, '').replace(/\/$/, '');
+function findBookmark(url) { return (prefs.bookmarks || []).find((b) => normUrl(b.url) === normUrl(url)); }
+
+function bmIcon(b) {
+  return b.favicon ? `<img src="${escapeAttr(b.favicon)}" alt="">` : ICON_GLOBE;
+}
+
+function renderBookmarksBar() {
+  const box = $('bm-items');
+  box.innerHTML = '';
+  const list = prefs.bookmarks || [];
+  if (!list.length) {
+    box.innerHTML = '<span class="bm-empty">Pour ajouter un favori, clique sur l\'étoile ☆ dans la barre d\'adresse ou appuie sur Ctrl+D.</span>';
+    $('bm-more').hidden = true;
+    return;
+  }
+  for (const b of list) {
+    const el = document.createElement('button');
+    el.className = 'bm';
+    el.title = `${b.title}\n${b.url}`;
+    el.draggable = true;
+    el.innerHTML = bmIcon(b) + '<span></span>';
+    el.querySelector('span').textContent = b.title || b.url;
+    const img = el.querySelector('img');
+    if (img) img.onerror = () => { img.outerHTML = ICON_GLOBE; };
+    el.addEventListener('click', (e) => {
+      if (e.ctrlKey) createTab(b.url, { activate: false });
+      else navigate(b.url);
+    });
+    el.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); createTab(b.url, { activate: false }); } });
+    el.addEventListener('contextmenu', (e) => { e.preventDefault(); bookmarkMenu(b, e.clientX, e.clientY); });
+    // Glisser pour réordonner
+    el.addEventListener('dragstart', () => { el.classList.add('dragging'); el.dataset.dragId = b.id; dragBm = b.id; });
+    el.addEventListener('dragend', () => { el.classList.remove('dragging'); dragBm = null; });
+    el.addEventListener('dragover', (e) => { if (dragBm && dragBm !== b.id) e.preventDefault(); });
+    el.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const arr = [...prefs.bookmarks];
+      const from = arr.findIndex((x) => x.id === dragBm);
+      const to = arr.findIndex((x) => x.id === b.id);
+      if (from < 0 || to < 0) return;
+      const [m] = arr.splice(from, 1);
+      arr.splice(to, 0, m);
+      savePrefs({ bookmarks: arr });
+    });
+    box.appendChild(el);
+  }
+  requestAnimationFrame(layoutBookmarks);
+}
+let dragBm = null;
+function layoutBookmarks() {
+  const box = $('bm-items');
+  const items = [...box.querySelectorAll('.bm')];
+  items.forEach((i) => i.classList.remove('hide'));
+  const limit = box.getBoundingClientRect().right;
+  let hidden = 0;
+  for (const i of items) if (i.getBoundingClientRect().right > limit + 1) { i.classList.add('hide'); hidden++; }
+  $('bm-more').hidden = hidden === 0;
+}
+window.addEventListener('resize', () => requestAnimationFrame(layoutBookmarks));
+$('bm-more').onclick = (e) => {
+  const hiddenOnes = (prefs.bookmarks || []).filter((b, i) => $('bm-items').children[i] && $('bm-items').children[i].classList.contains('hide'));
+  const r = e.currentTarget.getBoundingClientRect();
+  showCtx(hiddenOnes.map((b) => ({ label: b.title || b.url, click: () => navigate(b.url) })), r.right - 240, r.bottom + 4);
+};
+
+function showCtx(items, x, y) {
+  const ctx = $('ctx');
+  ctx.innerHTML = '';
+  for (const it of items) {
+    if (it.sep) { const d = document.createElement('div'); d.className = 'sep'; ctx.appendChild(d); continue; }
+    const b = document.createElement('button');
+    b.textContent = it.label;
+    if (it.danger) b.className = 'danger';
+    b.onclick = () => { ctx.hidden = true; it.click(); };
+    ctx.appendChild(b);
+  }
+  ctx.hidden = false;
+  const w = ctx.offsetWidth, h = ctx.offsetHeight;
+  ctx.style.left = Math.max(8, Math.min(x, innerWidth - w - 8)) + 'px';
+  ctx.style.top = Math.max(8, Math.min(y, innerHeight - h - 8)) + 'px';
+}
+document.addEventListener('mousedown', (e) => {
+  if (!e.target.closest('#ctx')) $('ctx').hidden = true;
+  if (!e.target.closest('#bm-pop') && !e.target.closest('#star')) $('bm-pop').hidden = true;
+});
+
+function bookmarkMenu(b, x, y) {
+  showCtx([
+    { label: 'Ouvrir', click: () => navigate(b.url) },
+    { label: 'Ouvrir dans un nouvel onglet', click: () => createTab(b.url) },
+    { sep: true },
+    { label: 'Modifier…', click: () => openBookmarkPop(b) },
+    { label: 'Supprimer', danger: true, click: () => removeBookmark(b.id) }
+  ], x, y);
+}
+
+function removeBookmark(id) {
+  savePrefs({ bookmarks: prefs.bookmarks.filter((b) => b.id !== id) });
+  toast('Favori supprimé');
+}
+
+let editingBm = null;
+function openBookmarkPop(existing) {
+  const t = activeTab();
+  let b = existing || (t && findBookmark(t.url));
+  let isNew = false;
+  if (!b) {
+    if (!t || !/^https?:/i.test(t.url)) return;
+    b = { id: bmId(), title: t.title || displayUrl(t.url), url: t.url, favicon: t.favicon || null };
+    savePrefs({ bookmarks: [...(prefs.bookmarks || []), b] });
+    isNew = true;
+  }
+  editingBm = b.id;
+  $('bm-pop-title').textContent = isNew ? 'Favori ajouté ✓' : 'Modifier le favori';
+  $('bm-name').value = b.title || '';
+  $('bm-url').value = b.url;
+  const pop = $('bm-pop');
+  closePops();
+  pop.hidden = false;
+  const r = (existing ? $('bookmarks-bar') : $('star')).getBoundingClientRect();
+  pop.style.top = (r.bottom + 6) + 'px';
+  pop.style.right = existing ? '' : Math.max(8, innerWidth - r.right - 10) + 'px';
+  pop.style.left = existing ? '50%' : '';
+  pop.style.transform = existing ? 'translateX(-50%)' : '';
+  setTimeout(() => { $('bm-name').focus(); $('bm-name').select(); }, 0);
+}
+function saveBookmarkPop() {
+  const arr = (prefs.bookmarks || []).map((b) => b.id === editingBm
+    ? { ...b, title: $('bm-name').value.trim() || b.title, url: toUrl($('bm-url').value) } : b);
+  savePrefs({ bookmarks: arr });
+  $('bm-pop').hidden = true;
+}
+$('bm-save').onclick = saveBookmarkPop;
+$('bm-delete').onclick = () => { $('bm-pop').hidden = true; removeBookmark(editingBm); };
+[$('bm-name'), $('bm-url')].forEach((i) => i.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') saveBookmarkPop();
+  if (e.key === 'Escape') $('bm-pop').hidden = true;
+}));
+$('star').onclick = (e) => { e.stopPropagation(); openBookmarkPop(); };
+
+// ================= Extensions : onglets demandés par les extensions =================
+api.on('ext:create-tab', ({ reqId, url, active }) => {
+  const tab = createTab(url || HOME, { activate: active });
+  const done = (wcId) => api.ext.tabCreated(reqId, wcId);
+  if (tab.wcId) done(tab.wcId);
+  else (tab.onAttach = tab.onAttach || []).push(done);
+});
+api.on('ext:select-tab', (wcId) => { const t = tabByWcId(wcId); if (t) activateTab(t.id); });
+api.on('ext:remove-tab', (wcId) => { const t = tabByWcId(wcId); if (t) closeTab(t.id); });
+api.on('toast', (msg) => toast(msg));
+
 // ================= Démarrage =================
-restoreSession();
+function startup() {
+  if (prefs.startup === 'pages' && (prefs.startupPages || []).length) {
+    prefs.startupPages.forEach((u, i) => createTab(toUrl(u), { activate: false, asleep: i > 0 }));
+    activateTab(tabs[0].id);
+  } else if (prefs.startup === 'newtab') {
+    createTab(NEWTAB);
+  } else {
+    restoreSession();
+  }
+}
+api.prefs.get().then((p) => { prefs = { ...prefs, ...p }; applyPrefs(); startup(); })
+  .catch(() => startup());

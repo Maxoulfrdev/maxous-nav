@@ -1,6 +1,6 @@
 // Maxou's Nav — processus principal
 const {
-  app, BrowserWindow, session, ipcMain, Menu, net, shell, dialog, clipboard
+  app, BrowserWindow, session, ipcMain, Menu, net, shell, dialog, clipboard, webContents
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -39,7 +39,22 @@ const isDev = !app.isPackaged;
 
 // ---------- Réglages persistants ----------
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
-let settings = { adblock: true, totalBlocked: 0, bounds: null, maximized: false, permissions: {} };
+let settings = {
+  adblock: true, totalBlocked: 0, bounds: null, maximized: false, permissions: {},
+  // Préférences modifiables dans la page Paramètres
+  startup: 'restore',          // 'newtab' | 'restore' | 'pages'
+  startupPages: [],            // pages ouvertes au démarrage (mode 'pages')
+  home: { mode: 'newtab', url: '' }, // bouton Accueil
+  showHome: true,
+  showBookmarksBar: true,
+  bookmarks: []                // { id, title, url, favicon }
+};
+const PREF_KEYS = ['startup', 'startupPages', 'home', 'showHome', 'showBookmarksBar', 'bookmarks'];
+function prefs() {
+  const p = {};
+  for (const k of PREF_KEYS) p[k] = settings[k];
+  return p;
+}
 function loadSettings() {
   try { settings = { ...settings, ...JSON.parse(fs.readFileSync(settingsPath(), 'utf8')) }; } catch {}
 }
@@ -89,7 +104,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false, // nécessaire pour la barre d'icônes des extensions (interface locale de confiance)
       webviewTag: true,
       spellcheck: false,
       additionalArguments: [mica ? '--maxou-mica' : '--maxou-solid']
@@ -97,6 +112,9 @@ function createWindow() {
   });
 
   if (settings.maximized) mainWindow.maximize();
+  mainWindow.webContents.on('did-attach-webview', (_e, wc) => {
+    if (extensions) { try { extensions.addTab(wc, mainWindow); } catch {} }
+  });
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
@@ -130,6 +148,8 @@ function shortcutFor(input) {
   if (ctrl && input.shift && k === 't') return 'reopen-tab';
   if (ctrl && input.shift && (k === 'tab')) return 'prev-tab';
   if (ctrl && input.shift && k === 'i') return 'devtools';
+  if (ctrl && input.shift && k === 'b') return 'toggle-bookmarks-bar';
+  if (ctrl && input.shift && k === 'o') return 'settings';
   if (ctrl && !input.shift && !input.alt) {
     if (k === 't') return 'new-tab';
     if (k === 'w' || k === 'f4') return 'close-tab';
@@ -138,6 +158,8 @@ function shortcutFor(input) {
     if (k === 'l' || k === 'e' || k === 'k') return 'focus-address';
     if (k === 'r') return 'reload';
     if (k === 'f') return 'find';
+    if (k === 'd') return 'bookmark';
+    if (k === ',') return 'settings';
     if (k === 'h' || k === 'j') return 'downloads';
     if (k === '=' || k === '+' || k === 'add') return 'zoom-in';
     if (k === '-' || k === 'subtract') return 'zoom-out';
@@ -228,6 +250,16 @@ function showContextMenu(contents, p) {
       sep,
       { label: 'Tout sélectionner', click: () => contents.selectAll() }
     );
+  }
+
+  if (isWebview && extensions) {
+    try {
+      const extItems = extensions.getContextMenuItems(contents, p);
+      if (extItems && extItems.length) {
+        if (t.length && t[t.length - 1].type !== 'separator') t.push(sep);
+        t.push(...extItems);
+      }
+    } catch {}
   }
 
   if (isWebview) {
@@ -442,6 +474,106 @@ ipcMain.handle('app:info', () => ({
   electron: process.versions.electron
 }));
 
+// ---------- Préférences (page Paramètres, favoris…) ----------
+ipcMain.handle('prefs:get', () => prefs());
+ipcMain.handle('prefs:set', (_e, patch) => {
+  for (const k of PREF_KEYS) if (patch && k in patch) settings[k] = patch[k];
+  saveSettings();
+  toUI('prefs', prefs());
+  return prefs();
+});
+
+// ---------- Extensions Chrome (Chrome Web Store) ----------
+let extensions = null;
+const pendingTabs = new Map();
+let tabReq = 0;
+
+function waitForTab(url, active) {
+  return new Promise((resolve, reject) => {
+    const id = ++tabReq;
+    pendingTabs.set(id, resolve);
+    toUI('ext:create-tab', { reqId: id, url: url || null, active: active !== false });
+    setTimeout(() => { if (pendingTabs.delete(id)) reject(new Error('timeout')); }, 15000);
+  });
+}
+ipcMain.on('ext:tab-created', (_e, { reqId, wcId }) => {
+  const resolve = pendingTabs.get(reqId);
+  if (!resolve) return;
+  pendingTabs.delete(reqId);
+  const wc = webContents.fromId(wcId);
+  if (wc) resolve([wc, mainWindow]);
+});
+ipcMain.on('ext:tab-selected', (_e, wcId) => {
+  const wc = webContents.fromId(wcId);
+  if (wc && extensions) { try { extensions.selectTab(wc); } catch {} }
+});
+
+function extList() {
+  const ses = session.defaultSession;
+  const all = (ses.extensions && ses.extensions.getAllExtensions) ? ses.extensions.getAllExtensions() : ses.getAllExtensions();
+  return all.map((e) => ({
+    id: e.id,
+    name: e.name,
+    version: e.version,
+    description: (e.manifest && e.manifest.description) || ''
+  }));
+}
+
+async function initExtensions() {
+  try {
+    const { ElectronChromeExtensions } = require('electron-chrome-extensions');
+    const { installChromeWebStore, uninstallExtension } = require('electron-chrome-web-store');
+    const ses = session.defaultSession;
+
+    extensions = new ElectronChromeExtensions({
+      session: ses,
+      async createTab(details) { return waitForTab(details.url, details.active); },
+      selectTab(wc) { toUI('ext:select-tab', wc.id); },
+      removeTab(wc) { toUI('ext:remove-tab', wc.id); },
+      async createWindow(details) {
+        const url = Array.isArray(details.url) ? details.url[0] : details.url;
+        await waitForTab(url, true);
+        return mainWindow;
+      }
+    });
+    ElectronChromeExtensions.handleCRXProtocol(ses);
+
+    await installChromeWebStore({
+      session: ses,
+      async beforeInstall(d) {
+        const r = await dialog.showMessageBox(mainWindow, {
+          type: 'question',
+          title: APP_NAME,
+          message: `Ajouter « ${d.localizedName} » à Maxou's Nav ?`,
+          detail: 'Cette extension pourra lire et modifier certaines pages que tu visites.',
+          buttons: ['Ajouter l\u2019extension', 'Annuler'],
+          defaultId: 0, cancelId: 1,
+          icon: d.icon && !d.icon.isEmpty() ? d.icon : undefined
+        });
+        return { action: r.response === 0 ? 'allow' : 'deny' };
+      }
+    });
+
+    const notify = () => toUI('ext:changed', extList());
+    const evSrc = ses.extensions && ses.extensions.on ? ses.extensions : ses;
+    evSrc.on('extension-loaded', (_e, ext) => { notify(); toUI('toast', `🧩 « ${ext.name} » est installée`); });
+    evSrc.on('extension-unloaded', notify);
+
+    ipcMain.handle('ext:list', () => extList());
+    ipcMain.handle('ext:remove', async (_e, id) => {
+      try { await uninstallExtension(id, { session: ses }); } catch (err) {
+        try { (ses.extensions || ses).removeExtension(id); } catch {}
+      }
+      return extList();
+    });
+    notify();
+  } catch (err) {
+    console.error('Extensions indisponibles :', err);
+    ipcMain.handle('ext:list', () => []);
+    ipcMain.handle('ext:remove', () => []);
+  }
+}
+
 // ---------- Démarrage ----------
 app.whenReady().then(() => {
   loadSettings();
@@ -449,6 +581,7 @@ app.whenReady().then(() => {
   const ses = session.defaultSession;
   setupPermissions(ses);
   setupDownloads(ses);
+  initExtensions().finally(() => {});
   createWindow();
   initAdblock();
   updater.init((s) => toUI('update', s));

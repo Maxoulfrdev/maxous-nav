@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; img-src * data: file: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+        content="default-src 'self'; img-src * data: file: blob: crx:; style-src 'self' 'unsafe-inline'; script-src 'self'">
   <title>Maxou's Nav</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -43,9 +43,13 @@
       <input id="address" type="text" spellcheck="false" autocomplete="off"
              placeholder="Rechercher sur Google ou saisir une adresse">
       <span id="zoom-chip" title="Revenir à 100 %"></span>
+      <button id="star" title="Ajouter aux favoris (Ctrl+D)">
+        <svg viewBox="0 0 24 24"><path d="m12 3.8 2.5 5.1 5.6.8-4 4 1 5.6-5.1-2.7-5 2.7 1-5.6-4.1-4 5.6-.8z"/></svg>
+      </button>
       <ul id="suggestions" hidden></ul>
     </div>
 
+    <browser-action-list id="ext-actions" alignment="bottom left"></browser-action-list>
     <button id="update-btn" hidden title="">
       <svg viewBox="0 0 24 24"><path d="M12 19V7M6.5 12.5 12 7l5.5 5.5"/></svg>
       <span id="update-label">Mettre à jour</span>
@@ -63,9 +67,18 @@
     </button>
   </nav>
 
+  <div id="bookmarks-bar" hidden>
+    <div id="bm-items"></div>
+    <button id="bm-more" class="icon-btn sm" title="Autres favoris" hidden>
+      <svg viewBox="0 0 24 24"><path d="m7 6 6 6-6 6M13 6l6 6-6 6"/></svg>
+    </button>
+  </div>
+
   <div id="progress"></div>
 
-  <main id="views"></main>
+  <main id="views">
+    <section id="settings-view" hidden></section>
+  </main>
 
   <!-- Recherche dans la page -->
   <div id="findbar" class="pop" hidden>
@@ -108,10 +121,17 @@
       </button>
     </div>
     <div class="sep"></div>
+    <button data-cmd="bookmark"><span>Ajouter cette page aux favoris</span><kbd>Ctrl+D</kbd></button>
+    <button data-cmd="toggle-bookmarks-bar"><span id="menu-bm-label">Masquer la barre de favoris</span><kbd>Ctrl+Maj+B</kbd></button>
+    <div class="sep"></div>
     <button data-cmd="find"><span>Rechercher dans la page</span><kbd>Ctrl+F</kbd></button>
     <button data-cmd="downloads"><span>Téléchargements</span><kbd>Ctrl+J</kbd></button>
     <button data-cmd="dl-folder"><span>Ouvrir le dossier Téléchargements</span></button>
     <div class="sep"></div>
+    <button data-cmd="extensions"><span>Extensions</span></button>
+    <button data-cmd="webstore"><span>Chrome Web Store</span></button>
+    <div class="sep"></div>
+    <button data-cmd="settings"><span>Paramètres</span><kbd>Ctrl+,</kbd></button>
     <button data-cmd="devtools"><span>Outils de développement</span><kbd>F12</kbd></button>
     <button data-cmd="check-update"><span>Rechercher des mises à jour</span></button>
     <button data-cmd="about"><span>À propos de Maxou's Nav</span></button>
@@ -140,8 +160,23 @@
     </div>
   </div>
 
+  <!-- Favori ajouté / modifier -->
+  <div id="bm-pop" class="pop" hidden>
+    <div class="pop-title" id="bm-pop-title">Favori ajouté</div>
+    <label class="field"><span>Nom</span><input id="bm-name" type="text" spellcheck="false"></label>
+    <label class="field"><span>Adresse</span><input id="bm-url" type="text" spellcheck="false"></label>
+    <div class="row-end">
+      <button id="bm-delete" class="secondary">Supprimer</button>
+      <button id="bm-save" class="primary">OK</button>
+    </div>
+  </div>
+
+  <!-- Menu clic droit (favoris…) -->
+  <div id="ctx" class="pop" hidden></div>
+
   <div id="toast" hidden></div>
 
   <script src="app.js"></script>
+  <script src="settings.js"></script>
 </body>
 </html>

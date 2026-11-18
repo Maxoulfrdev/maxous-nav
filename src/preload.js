@@ -1,6 +1,12 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const CHANNELS = ['cmd', 'open-tab', 'download', 'adblock:blocked', 'adblock:state', 'update'];
+// Icônes des extensions dans la barre d'outils (<browser-action-list>)
+try { require('electron-chrome-extensions/browser-action').injectBrowserAction(); } catch (e) { console.error(e); }
+
+const CHANNELS = [
+  'cmd', 'open-tab', 'download', 'adblock:blocked', 'adblock:state', 'update', 'prefs', 'toast',
+  'ext:changed', 'ext:create-tab', 'ext:select-tab', 'ext:remove-tab'
+];
 
 contextBridge.exposeInMainWorld('maxou', {
   on: (channel, cb) => {
@@ -21,6 +27,16 @@ contextBridge.exposeInMainWorld('maxou', {
     get: () => ipcRenderer.invoke('update:get'),
     check: () => ipcRenderer.invoke('update:check'),
     install: () => ipcRenderer.invoke('update:install')
+  },
+  prefs: {
+    get: () => ipcRenderer.invoke('prefs:get'),
+    set: (patch) => ipcRenderer.invoke('prefs:set', patch)
+  },
+  ext: {
+    list: () => ipcRenderer.invoke('ext:list'),
+    remove: (id) => ipcRenderer.invoke('ext:remove', id),
+    tabCreated: (reqId, wcId) => ipcRenderer.send('ext:tab-created', { reqId, wcId }),
+    tabSelected: (wcId) => ipcRenderer.send('ext:tab-selected', wcId)
   },
   toggleFullscreen: () => ipcRenderer.send('fullscreen'),
   info: () => ipcRenderer.invoke('app:info'),

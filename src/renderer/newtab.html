@@ -34,7 +34,20 @@
     <nav class="tiles" id="tiles"></nav>
   </main>
 
-  <footer>Protégé par le bloqueur de pubs intégré</footer>
+  <footer>Protégé par le bloqueur de pubs intégré · <a href="#" id="reset-tiles">Raccourcis par défaut</a></footer>
+
+  <div id="add-dialog" hidden>
+    <form id="add-form" class="dlg">
+      <h2>Ajouter un raccourci</h2>
+      <label>Nom<input id="add-name" type="text" placeholder="ex. Discord" autocomplete="off" spellcheck="false"></label>
+      <label>Adresse<input id="add-url" type="text" placeholder="ex. discord.com" autocomplete="off" spellcheck="false" required></label>
+      <p id="add-err"></p>
+      <div class="dlg-actions">
+        <button type="button" id="add-cancel" class="ghost">Annuler</button>
+        <button type="submit" class="go">Ajouter</button>
+      </div>
+    </form>
+  </div>
 
   <script src="newtab.js"></script>
 </body>

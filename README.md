@@ -11,6 +11,8 @@ Une fois installé, Maxou's Nav **se met à jour tout seul**.
 - Mises à jour automatiques silencieuses (comme Chrome)
 - Onglets en veille automatique pour économiser la mémoire
 - Recherche Google avec suggestions, page d'accueil personnalisée
+- Favoris (étoile + barre de favoris), page d'accueil et démarrage personnalisables
+- Extensions du Chrome Web Store
 - Thème sombre, effet Mica sur Windows 11
 
 ## Publier une nouvelle version
