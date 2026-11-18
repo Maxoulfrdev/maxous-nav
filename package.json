@@ -1,13 +1,14 @@
 {
   "name": "maxous-nav",
   "productName": "Maxou's Nav",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Maxou's Nav — navigateur rapide avec bloqueur de pubs intégré",
   "author": "Maxou",
   "main": "src/main.js",
   "scripts": {
-    "start": "electron .",
-    "dist": "electron-builder --win"
+    "start": "npm run bundle && electron .",
+    "dist": "electron-builder --win",
+    "bundle": "esbuild src/preload.js --bundle --platform=node --external:electron --target=node20 --outfile=src/preload.bundle.js --log-level=warning"
   },
   "dependencies": {
     "@ghostery/adblocker-electron": "^2.20.3",
@@ -16,7 +17,8 @@
   },
   "devDependencies": {
     "electron": "^45.3.4",
-    "electron-builder": "^26.0.0"
+    "electron-builder": "^26.0.0",
+    "esbuild": "^0.25.12"
   },
   "build": {
     "appId": "fr.maxou.nav",
@@ -29,12 +31,17 @@
     },
     "files": [
       "src/**/*",
+      "!src/preload.js",
       "package.json"
     ],
     "extraResources": [
       {
         "from": "build/adblock-engine.bin",
         "to": "adblock-engine.bin"
+      },
+      {
+        "from": "build/blocklist.txt",
+        "to": "blocklist.txt"
       }
     ],
     "asarUnpack": [
@@ -60,6 +67,14 @@
     },
     "portable": {
       "artifactName": "Maxous-Nav-Portable-${version}.${ext}"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
     }
   },
   "updates": {

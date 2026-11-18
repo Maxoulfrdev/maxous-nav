@@ -1,3 +1,5 @@
 node_modules/
 dist/
 build/adblock-engine.bin
+src/preload.bundle.js
+build/blocklist.txt

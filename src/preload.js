@@ -5,7 +5,7 @@ try { require('electron-chrome-extensions/browser-action').injectBrowserAction()
 
 const CHANNELS = [
   'cmd', 'open-tab', 'download', 'adblock:blocked', 'adblock:state', 'update', 'prefs', 'toast',
-  'ext:changed', 'ext:create-tab', 'ext:select-tab', 'ext:remove-tab'
+  'ext:changed', 'ext:create-tab', 'ext:select-tab', 'ext:remove-tab', 'security:interstitial'
 ];
 
 contextBridge.exposeInMainWorld('maxou', {
@@ -37,6 +37,16 @@ contextBridge.exposeInMainWorld('maxou', {
     remove: (id) => ipcRenderer.invoke('ext:remove', id),
     tabCreated: (reqId, wcId) => ipcRenderer.send('ext:tab-created', { reqId, wcId }),
     tabSelected: (wcId) => ipcRenderer.send('ext:tab-selected', wcId)
+  },
+  security: {
+    check: (url) => ipcRenderer.invoke('security:check', url),
+    proceed: (wcId, kind, url) => ipcRenderer.send('security:proceed', wcId, kind, url),
+    info: () => ipcRenderer.invoke('security:info')
+  },
+  data: { clear: (what) => ipcRenderer.invoke('data:clear', what) },
+  perms: {
+    list: () => ipcRenderer.invoke('perms:list'),
+    revoke: (key) => ipcRenderer.invoke('perms:revoke', key)
   },
   toggleFullscreen: () => ipcRenderer.send('fullscreen'),
   info: () => ipcRenderer.invoke('app:info'),

@@ -47,9 +47,27 @@ jobs:
         if: steps.ver.outputs.publish == 'true'
         run: node scripts/update-adblock-lists.js
 
+      - name: Listes de sites dangereux
+        if: steps.ver.outputs.publish == 'true'
+        run: node scripts/update-blocklists.js
+
+      - name: Preload de l'interface (bac à sable)
+        if: steps.ver.outputs.publish == 'true'
+        run: npm run bundle
+
       - name: Compiler l'appli et la version portable
         if: steps.ver.outputs.publish == 'true'
         run: npx electron-builder --win dir portable --publish never
+
+      - name: Auto-test du navigateur compilé (bloque la publication en cas d'échec)
+        if: steps.ver.outputs.publish == 'true'
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "dist\win-unpacked\MaxousNav.exe" -ArgumentList "--maxou-selftest" -PassThru
+          if (-not $p.WaitForExit(90000)) { Stop-Process -Id $p.Id -Force; Write-Error "Auto-test : délai dépassé"; exit 1 }
+          Write-Host "Code de sortie : $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { Write-Error "Auto-test échoué"; exit 1 }
+          Write-Host "Auto-test réussi"
 
       - name: Créer l'installateur
         if: steps.ver.outputs.publish == 'true'

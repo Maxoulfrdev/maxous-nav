@@ -19,7 +19,7 @@
     ['accueil', 'Page d’accueil'],
     ['favoris', 'Favoris'],
     ['extensions', 'Extensions'],
-    ['confidentialite', 'Bloqueur de pubs'],
+    ['confidentialite', 'Confidentialité et sécurité'],
     ['apropos', 'À propos']
   ];
 
@@ -105,10 +105,31 @@
         <button class="s-btn" data-ext-del="${esc(e.id)}" data-ext-name="${esc(e.name)}">Supprimer</button></div>`).join('');
   }
 
+  let permsCache = [];
+  let secInfo = { blockedSites: 0 };
+  const PERM_LABEL = {
+    media: 'Caméra / micro', geolocation: 'Position', notifications: 'Notifications',
+    'clipboard-read': 'Presse-papiers', 'display-capture': 'Capture d’écran', midi: 'MIDI', midiSysex: 'MIDI', 'idle-detection': 'Détection d’inactivité'
+  };
+  function permsHtml() {
+    if (!permsCache.length) return '<div class="s-empty">Aucun site n’a d’autorisation enregistrée.</div>';
+    return permsCache.map((p) => `<div class="s-item"><span class="grow">${esc(p.origin.replace(/^https?:\/\//, ''))} — ${esc(PERM_LABEL[p.permission] || p.permission)}</span>
+      <span class="muted" style="color:${p.allowed ? 'var(--ok)' : '#F87171'}">${p.allowed ? 'Autorisé' : 'Bloqué'}</span>
+      <button class="icon-btn sm" data-revoke="${esc(p.key)}" title="Oublier ce choix">${ICON_X}</button></div>`).join('');
+  }
   function sectionConfidentialite() {
-    return `<div class="s-section" id="s-confidentialite"><h2>Bloqueur de pubs</h2><div class="s-card">
+    const n = secInfo.blockedSites ? ` (${secInfo.blockedSites.toLocaleString('fr-FR')} sites connus)` : '';
+    return `<div class="s-section" id="s-confidentialite"><h2>Confidentialité et sécurité</h2><div class="s-card">
+      ${toggle('safe-on', prefs.safeBrowsing !== false, 'Protection contre les sites dangereux', 'Bloque les faux sites qui volent les mots de passe et les sites qui diffusent des virus' + n + '.')}
+      ${toggle('https-on', prefs.httpsOnly !== false, 'Toujours utiliser des connexions sécurisées (HTTPS)', 'Passe automatiquement les sites en HTTPS et prévient avant d’ouvrir un site non sécurisé.')}
       ${toggle('adblock-on', adblock.enabled, 'Bloquer les pubs et les traqueurs', `${(adblock.total || 0).toLocaleString('fr-FR')} éléments bloqués depuis l’installation`)}
-    </div></div>`;
+      ${toggle('gpc-on', prefs.gpc !== false, 'Demander aux sites de ne pas vendre ni partager mes données', 'Envoie le signal « Global Privacy Control » à chaque site.')}
+      <div class="s-row"><div class="s-text"><div class="s-label">Effacer les données de navigation</div>
+        <div class="s-desc">Cache, cookies, autorisations des sites.</div></div>
+        <button class="s-btn" id="clear-data">Effacer…</button></div>
+    </div>
+    <h2 style="margin-top:22px">Autorisations des sites</h2><div class="s-card"><div class="s-row" style="display:block"><div class="s-list" id="perms-list">${permsHtml()}</div></div></div>
+    <p class="s-note">Toujours actif : chaque onglet est isolé dans un bac à sable, les cookies et sessions sont chiffrés sur ton PC, les téléchargements sont signalés à Windows SmartScreen, et les applications externes ne s’ouvrent qu’après ta confirmation.</p></div>`;
   }
 
   function sectionAPropos() {
@@ -246,17 +267,37 @@
       render();
     });
 
-    // Bloqueur
+    // Confidentialité et sécurité
     q('#adblock-on').onchange = async (e) => { adblock = await api.adblock.set(e.target.checked); updateShield(); };
+    q('#safe-on').onchange = (e) => savePrefs({ safeBrowsing: e.target.checked });
+    q('#https-on').onchange = (e) => savePrefs({ httpsOnly: e.target.checked });
+    q('#gpc-on').onchange = (e) => savePrefs({ gpc: e.target.checked });
+    q('#clear-data').onclick = () => openClearDialog();
+    wirePerms();
 
     // À propos
     q('#s-check').onclick = () => { if (upd.status === 'ready') api.update.install(); else api.update.check(); };
+  }
+
+  function wirePerms() {
+    view.querySelectorAll('[data-revoke]').forEach((b) => b.onclick = async () => {
+      await api.perms.revoke(b.dataset.revoke);
+      permsCache = await api.perms.list();
+      const box = view.querySelector('#perms-list');
+      if (box) { box.innerHTML = permsHtml(); wirePerms(); }
+    });
   }
 
   function isVisible() { return !view.hidden; }
 
   window.renderSettings = (section) => {
     render(section);
+    Promise.all([api.perms.list(), api.security.info()]).then(([p, info]) => {
+      const changed = JSON.stringify(p) !== JSON.stringify(permsCache) || (info && info.blockedSites) !== secInfo.blockedSites;
+      permsCache = p || [];
+      secInfo = info || secInfo;
+      if (changed && isVisible()) render();
+    }).catch(() => {});
     api.ext.list().then((l) => {
       extCache = l || [];
       const box = view.querySelector('#ext-list');

@@ -214,6 +214,11 @@ function wireWebview(tab) {
   });
 
   wv.addEventListener('did-start-navigation', (e) => {
+    if (e.isMainFrame && !e.isSameDocument && tab.interstitial && e.url !== tab.interstitial.url &&
+        !e.url.startsWith('data:') && !e.url.startsWith('about:blank') && e.url !== tab.interstitial.url.replace(/^http:/, 'https:')) {
+      tab.interstitial = null;
+      if (tab.id === activeId) { renderInterstitial(); updateToolbar(); }
+    }
     if (e.isMainFrame && !e.isSameDocument) {
       tab.blocked = 0;
       if (tab.id === activeId) updateShield();
@@ -253,6 +258,7 @@ function wireWebview(tab) {
 
   wv.addEventListener('did-fail-load', (e) => {
     if (!e.isMainFrame || e.errorCode === -3) return; // -3 : navigation annulée
+    if (tab.interstitial) return; // une page d'alerte de sécurité est déjà affichée
     tab.errorUrl = e.validatedURL || tab.url;
     const html = errorPage(tab.errorUrl, e.errorDescription || 'Erreur inconnue');
     wv.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html)).catch(() => {});
@@ -308,6 +314,7 @@ function activateTab(id) {
   }
   const internal = isInternal(tab.url);
   $('settings-view').hidden = !internal;
+  renderInterstitial();
   if (internal) window.renderSettings && window.renderSettings(tab.url.split('#')[1]);
   if (tab.wcId) api.ext.tabSelected(tab.wcId);
   document.title = tab.title + " — Maxou's Nav";
@@ -398,9 +405,11 @@ function updateToolbar() {
 
   if (document.activeElement !== address) address.value = displayUrl(t.url);
 
-  const url = t.url || '';
-  siteIcon.className = isNewtab(url) ? 'search' : url.startsWith('https://') ? 'lock' : url.startsWith('http://') ? 'warn' : 'search';
-  siteIcon.title = siteIcon.className === 'lock' ? 'Connexion sécurisée' : siteIcon.className === 'warn' ? 'Connexion non sécurisée' : '';
+  let url = t.url || '';
+  if (t.interstitial) url = t.interstitial.url;
+  siteIcon.className = t.interstitial ? (t.interstitial.kind === 'http' ? 'warn' : 'danger') : isNewtab(url) ? 'search' : url.startsWith('https://') ? 'lock' : url.startsWith('http://') ? 'warn' : 'search';
+  if (t.interstitial && document.activeElement !== address) address.value = url;
+  siteIcon.title = siteIcon.className === 'lock' ? 'Connexion sécurisée' : siteIcon.className === 'warn' ? 'Connexion non sécurisée — n\'y tape pas de mot de passe' : siteIcon.className === 'danger' ? 'Site dangereux' : '';
 
   const starOk = /^https?:/i.test(url);
   $('star').hidden = !starOk;
@@ -421,11 +430,24 @@ function focusAddress() {
   address.select();
 }
 
-function navigate(text) {
+async function navigate(text) {
   const t = activeTab();
   if (!t) return;
   hideSuggestions();
-  const url = toUrl(text);
+  let url = toUrl(text);
+  if (/^https?:/i.test(url)) {
+    try {
+      // (le passage en HTTPS est fait par le système, qui sait revenir en arrière si besoin)
+      const c = await api.security.check(url);
+      if (c.action === 'danger' && t.wv && t.wcId) {
+        t.interstitial = { kind: 'danger', url, wcId: t.wcId };
+        address.blur();
+        renderInterstitial();
+        updateToolbar();
+        return;
+      }
+    } catch {}
+  }
   if (isInternal(url)) { openSettings(url.split('#')[1]); address.blur(); return; }
   const wasInternal = isInternal(t.url);
   t.url = url;
@@ -807,7 +829,8 @@ function runCommand(cmd) {
     case 'about': showAbout(); break;
     case 'check-update': showAbout(); api.update.check(); break;
     case 'escape':
-      if (!$('about').hidden) $('about').hidden = true;
+      if (!$('clear-dlg').hidden) $('clear-dlg').hidden = true;
+      else if (!$('about').hidden) $('about').hidden = true;
       else if (!Object.values(pops).every((p) => p.hidden)) closePops();
       else if (!$('bm-pop').hidden || !$('ctx').hidden) { $('bm-pop').hidden = true; $('ctx').hidden = true; }
       else if (!findbar.hidden) closeFind();
@@ -828,6 +851,75 @@ api.on('open-tab', (url, foreground) => {
   if (!foreground) toast('Ouvert dans un nouvel onglet');
   return tab;
 });
+
+// ================= Pages d'alerte (sites dangereux, site sans HTTPS) =================
+const INT_TEXT = {
+  danger: {
+    title: 'Site dangereux bloqué',
+    text: 'Ce site est signalé pour hameçonnage (faux site qui vole les mots de passe et les cartes bancaires) ou pour diffusion de logiciels malveillants. Maxou\'s Nav l\'a bloqué avant qu\'il ne s\'affiche.',
+    more: 'Le site figure sur les listes publiques de sites malveillants (Phishing URL Blocklist et URLhaus, mises à jour plusieurs fois par jour). Si tu es certain qu\'il s\'agit d\'une erreur, tu peux continuer, mais ne saisis jamais de mot de passe ni de carte bancaire sur une page arrivée par un lien inattendu.',
+    proceed: 'Je comprends le risque, ouvrir quand même'
+  },
+  http: {
+    title: 'Ce site n\'a pas de connexion sécurisée',
+    text: 'Maxou\'s Nav a essayé d\'ouvrir la version sécurisée (HTTPS) de ce site, sans succès. Sur la version non sécurisée, ce que tu envoies (mots de passe, messages…) peut être lu ou modifié par d\'autres personnes sur le réseau.',
+    more: 'Si tu continues, n\'y saisis aucun mot de passe ni information personnelle.',
+    proceed: 'Continuer vers la version non sécurisée'
+  }
+};
+function renderInterstitial() {
+  const t = activeTab();
+  const el = $('interstitial');
+  const it = t && t.interstitial;
+  el.hidden = !it;
+  if (!it) return;
+  const tx = INT_TEXT[it.kind] || INT_TEXT.danger;
+  el.className = it.kind;
+  $('int-title').textContent = tx.title;
+  $('int-text').textContent = tx.text;
+  $('int-url').textContent = it.url;
+  $('int-more').textContent = tx.more;
+  $('int-proceed').textContent = tx.proceed;
+  $('int-details').open = false;
+}
+api.on('security:interstitial', ({ wcId, kind, url }) => {
+  const t = tabByWcId(wcId);
+  if (!t) return;
+  t.interstitial = { kind, url, wcId };
+  t.loading = false;
+  renderTab(t);
+  if (t.id === activeId) { renderInterstitial(); updateToolbar(); }
+});
+$('int-back').onclick = () => {
+  const t = activeTab();
+  if (!t) return;
+  t.interstitial = null;
+  renderInterstitial();
+  if (t.wv && safe(() => t.wv.canGoBack(), false)) t.wv.goBack();
+  else if (t.wv) t.wv.loadURL(NEWTAB).catch(() => {});
+  updateToolbar();
+};
+$('int-proceed').onclick = () => {
+  const t = activeTab();
+  if (!t || !t.interstitial) return;
+  const { kind, url } = t.interstitial;
+  t.interstitial = null;
+  renderInterstitial();
+  if (t.wcId) api.security.proceed(t.wcId, kind, url);
+  updateToolbar();
+};
+
+// ================= Effacer les données de navigation =================
+function openClearDialog() { $('clear-dlg').hidden = false; }
+$('clr-cancel').onclick = () => { $('clear-dlg').hidden = true; };
+$('clear-dlg').addEventListener('mousedown', (e) => { if (e.target.id === 'clear-dlg') $('clear-dlg').hidden = true; });
+$('clr-go').onclick = async () => {
+  const what = { cache: $('clr-cache').checked, cookies: $('clr-cookies').checked, permissions: $('clr-perms').checked };
+  $('clear-dlg').hidden = true;
+  await api.data.clear(what);
+  toast('✓ Données effacées');
+  if (window.renderSettings && activeTab() && isInternal(activeTab().url)) window.renderSettings();
+};
 
 // ================= Paramètres / préférences =================
 function savePrefs(patch) {

@@ -9,9 +9,10 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 
 const pkg = require('../package.json');
-const REPO = process.env.MAXOU_UPDATE_REPO ||
+const REPO = (!app.isPackaged && process.env.MAXOU_UPDATE_REPO) ||
   ((pkg.updates && pkg.updates.owner && pkg.updates.repo) ? `${pkg.updates.owner}/${pkg.updates.repo}` : null);
-const API = process.env.MAXOU_UPDATE_API || 'https://api.github.com'; // (surchargé seulement pour les tests)
+// (surchargeable seulement hors appli installée, pour les tests)
+const API = (!app.isPackaged && process.env.MAXOU_UPDATE_API) || 'https://api.github.com';
 const CHECK_EVERY = 4 * 3600 * 1000;
 
 const isPortable = !!process.env.PORTABLE_EXECUTABLE_FILE;
@@ -19,6 +20,7 @@ const isPortable = !!process.env.PORTABLE_EXECUTABLE_FILE;
 let send = () => {};
 let state = { status: 'idle', current: app.getVersion() };
 let installerPath = null;
+let expectedSha = null;
 let installStarted = false;
 let checking = false;
 
@@ -46,9 +48,21 @@ async function getJson(url) {
   return r.json();
 }
 
+// Les mises à jour ne peuvent venir QUE de GitHub, en HTTPS
+const TRUSTED_HOSTS = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'github-releases.githubusercontent.com']);
+function trusted(url) {
+  try { const u = new URL(url); return u.protocol === 'https:' && TRUSTED_HOSTS.has(u.hostname); } catch { return false; }
+}
+function sha256File(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
 async function download(url, dest, size, onProgress) {
+  if (!trusted(url)) throw new Error('source non fiable');
   const r = await net.fetch(url, { headers: { 'User-Agent': 'MaxousNav-Updater' }, cache: 'no-store' });
-  if (!r.ok || !r.body) throw new Error('HTTP ' + r.status + ' ' + url);
+  if (!r.ok || !r.body) throw new Error('HTTP ' + r.status);
+  if (r.url && !trusted(r.url)) throw new Error('redirection non fiable');
+  if (size && size > 400 * 1024 * 1024) throw new Error('fichier trop gros');
   const total = size || parseInt(r.headers.get('content-length') || '0', 10);
   const hash = crypto.createHash('sha256');
   const tmp = dest + '.part';
@@ -87,9 +101,15 @@ async function check(manual = false) {
     const assets = rel.assets || [];
     const metaAsset = assets.find((a) => a.name === 'latest.json');
     if (!metaAsset) throw new Error('latest.json manquant');
+    if (!trusted(metaAsset.browser_download_url)) throw new Error('source non fiable');
     const meta = await getJson(metaAsset.browser_download_url);
+    if (!/^Maxous-Nav-Installation-[0-9.]+\.exe$/.test(String(meta.file)) || !/^[0-9a-f]{64}$/.test(String(meta.sha256))) {
+      throw new Error('fichier de mise à jour invalide');
+    }
+    if (String(meta.version) !== version) throw new Error('versions incohérentes');
     const exe = assets.find((a) => a.name === meta.file);
     if (!exe) throw new Error('installateur manquant');
+    if (!exe.browser_download_url.startsWith(`https://github.com/${REPO}/releases/download/`)) throw new Error('source non fiable');
 
     const info = { version, notes: rel.body || '', page: rel.html_url };
 
@@ -114,6 +134,7 @@ async function check(manual = false) {
       throw new Error('fichier corrompu (empreinte invalide)');
     }
     installerPath = dest;
+    expectedSha = meta.sha256;
     setState({ status: 'ready', progress: 1, ...info });
   } catch (err) {
     setState({ status: 'error', error: String(err.message || err) });
@@ -125,6 +146,9 @@ async function check(manual = false) {
 
 function runInstaller(relaunch) {
   if (!installerPath || installStarted) return false;
+  // Re-vérifie l'empreinte juste avant de lancer : le fichier n'a pas pu être modifié entre-temps
+  try { if (!expectedSha || sha256File(installerPath) !== expectedSha) { setState({ status: 'error', error: 'fichier modifié' }); return false; } }
+  catch { return false; }
   installStarted = true;
   const args = ['/S'];
   if (relaunch) args.push('--updated');

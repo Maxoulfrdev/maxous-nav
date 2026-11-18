@@ -39,6 +39,7 @@
         <svg class="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
         <svg class="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>
         <svg class="i-warn" viewBox="0 0 24 24"><path d="M12 4 2.8 19.5h18.4zM12 10v4.5M12 17.2v.1"/></svg>
+        <svg class="i-danger" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5.5M12 16.3v.1"/></svg>
       </span>
       <input id="address" type="text" spellcheck="false" autocomplete="off"
              placeholder="Rechercher sur Google ou saisir une adresse">
@@ -78,6 +79,22 @@
 
   <main id="views">
     <section id="settings-view" hidden></section>
+    <section id="interstitial" hidden>
+      <div class="int-card">
+        <div class="int-icon"></div>
+        <h1 id="int-title"></h1>
+        <p id="int-text"></p>
+        <p class="int-url" id="int-url"></p>
+        <div class="int-actions">
+          <button id="int-back" class="primary">Retour en sécurité</button>
+        </div>
+        <details id="int-details">
+          <summary>Détails</summary>
+          <p id="int-more"></p>
+          <button id="int-proceed" class="int-link"></button>
+        </details>
+      </div>
+    </section>
   </main>
 
   <!-- Recherche dans la page -->
@@ -173,6 +190,18 @@
 
   <!-- Menu clic droit (favoris…) -->
   <div id="ctx" class="pop" hidden></div>
+
+  <!-- Effacer les données de navigation -->
+  <div id="clear-dlg" hidden>
+    <div class="about-card" style="text-align:left;width:400px">
+      <h1 style="font-size:20px;margin:0 0 6px">Effacer les données</h1>
+      <p class="muted" style="margin:0 0 14px">Choisis ce que Maxou's Nav doit supprimer.</p>
+      <label class="chk"><input type="checkbox" id="clr-cache" checked><span><b>Images et fichiers en cache</b><br><small>Libère de la place. Les sites se rechargent un peu plus lentement la première fois.</small></span></label>
+      <label class="chk"><input type="checkbox" id="clr-cookies"><span><b>Cookies et données des sites</b><br><small>Te déconnecte de la plupart des sites.</small></span></label>
+      <label class="chk"><input type="checkbox" id="clr-perms"><span><b>Autorisations des sites</b><br><small>Caméra, micro, position… seront redemandés.</small></span></label>
+      <div class="row-end"><button id="clr-cancel" class="secondary">Annuler</button><button id="clr-go" class="primary">Effacer</button></div>
+    </div>
+  </div>
 
   <div id="toast" hidden></div>
 

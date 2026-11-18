@@ -28,8 +28,28 @@ const platformUA = {
 app.userAgentFallback =
   `Mozilla/5.0 (${platformUA}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeMajor}.0.0.0 Safari/537.36`;
 
+// ---------- Échanges interface ↔ système : seule l'interface de Maxou's Nav est écoutée ----------
+function fromUI(e) {
+  return !!(mainWindow && !mainWindow.isDestroyed() && e.sender === mainWindow.webContents &&
+    e.senderFrame && e.senderFrame === mainWindow.webContents.mainFrame &&
+    /^file:\/\/.*\/renderer\/index\.html$/.test(e.senderFrame.url.split(/[?#]/)[0]));
+}
+function uiHandle(channel, fn) {
+  ipcMain.handle(channel, (e, ...args) => {
+    if (!fromUI(e)) throw new Error('Accès refusé');
+    return fn(e, ...args);
+  });
+}
+function uiOn(channel, fn) {
+  ipcMain.on(channel, (e, ...args) => { if (fromUI(e)) fn(e, ...args); });
+}
+
+// ---------- Auto-test (utilisé par GitHub avant chaque publication) ----------
+const SELFTEST = process.argv.includes('--maxou-selftest');
+if (SELFTEST) app.setPath('userData', path.join(os.tmpdir(), 'maxou-selftest-' + process.pid));
+
 // ---------- Une seule instance ----------
-if (!app.requestSingleInstanceLock()) {
+if (!SELFTEST && !app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
 }
@@ -47,9 +67,12 @@ let settings = {
   home: { mode: 'newtab', url: '' }, // bouton Accueil
   showHome: true,
   showBookmarksBar: true,
-  bookmarks: []                // { id, title, url, favicon }
+  bookmarks: [],               // { id, title, url, favicon }
+  safeBrowsing: true,          // blocage des sites d'hameçonnage / malveillants
+  httpsOnly: true,             // passage automatique en HTTPS
+  gpc: true                    // signal « Global Privacy Control »
 };
-const PREF_KEYS = ['startup', 'startupPages', 'home', 'showHome', 'showBookmarksBar', 'bookmarks'];
+const PREF_KEYS = ['startup', 'startupPages', 'home', 'showHome', 'showBookmarksBar', 'bookmarks', 'safeBrowsing', 'httpsOnly', 'gpc'];
 function prefs() {
   const p = {};
   for (const k of PREF_KEYS) p[k] = settings[k];
@@ -101,17 +124,42 @@ function createWindow() {
     backgroundColor: mica ? '#00000000' : '#0B0C14',
     ...(mica ? { backgroundMaterial: 'mica' } : {}),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.bundle.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false, // nécessaire pour la barre d'icônes des extensions (interface locale de confiance)
+      sandbox: true,
       webviewTag: true,
       spellcheck: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      navigateOnDragDrop: false,
       additionalArguments: [mica ? '--maxou-mica' : '--maxou-solid']
     }
   });
 
   if (settings.maximized) mainWindow.maximize();
+  // L'interface ne doit jamais changer de page ni ouvrir de fenêtre
+  mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
+  mainWindow.webContents.on('will-redirect', (e) => e.preventDefault());
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // Chaque onglet (webview) est forcé en mode isolé, quoi qu'il arrive
+  mainWindow.webContents.on('will-attach-webview', (e, wp, params) => {
+    delete wp.preload;
+    delete wp.preloadURL;
+    wp.nodeIntegration = false;
+    wp.nodeIntegrationInSubFrames = false;
+    wp.nodeIntegrationInWorker = false;
+    wp.contextIsolation = true;
+    wp.sandbox = true;
+    wp.webSecurity = true;
+    wp.allowRunningInsecureContent = false;
+    wp.experimentalFeatures = false;
+    wp.enableBlinkFeatures = '';
+    wp.spellcheck = false;
+    wp.navigateOnDragDrop = false;
+    const src = params.src || '';
+    if (!/^(https?:|file:|data:text\/html|about:blank)/i.test(src)) e.preventDefault();
+  });
   mainWindow.webContents.on('did-attach-webview', (_e, wc) => {
     if (extensions) { try { extensions.addTab(wc, mainWindow); } catch {} }
   });
@@ -276,24 +324,35 @@ app.on('web-contents-created', (_e, contents) => {
   attachShortcuts(contents);
   contents.on('context-menu', (_ev, params) => showContextMenu(contents, params));
 
-  if (contents.getType() === 'webview') {
+  // Réglé juste après la création (mainWindow n'est pas encore connue pour la toute première)
+  setImmediate(() => {
+    if (contents.isDestroyed()) return;
+    if (mainWindow && contents === mainWindow.webContents) return; // l'interface a ses propres règles
+    const type = contents.getType();
+    if (type !== 'webview' && type !== 'window') return;
+    security.guardContents(contents);
     contents.setWindowOpenHandler(({ url, disposition }) => {
+      if (security.checkWindowOpen(contents, url) !== 'ok') return { action: 'deny' };
       // Vraies fenêtres popup (connexion Google/Facebook sur un site, paiement…)
-      if (disposition === 'new-window') {
+      if (type === 'webview' && disposition === 'new-window') {
         return {
           action: 'allow',
           overrideBrowserWindowOptions: {
             width: 520, height: 700, autoHideMenuBar: true,
             backgroundColor: '#ffffff',
-            icon: path.join(__dirname, 'icon.png')
+            icon: path.join(__dirname, 'icon.png'),
+            webPreferences: {
+              sandbox: true, contextIsolation: true, nodeIntegration: false,
+              webSecurity: true, allowRunningInsecureContent: false, spellcheck: false
+            }
           }
         };
       }
-      // target=_blank, clic molette… → nouvel onglet
+      // target=_blank, clic molette, liens ouverts depuis une popup… → nouvel onglet
       toUI('open-tab', url, disposition !== 'background-tab');
       return { action: 'deny' };
     });
-  }
+  });
 });
 
 // ---------- Bloqueur de pubs (moteur Ghostery, listes EasyList & co) ----------
@@ -351,8 +410,8 @@ function adblockState() {
   return { ready: blockerReady, enabled: settings.adblock, total: settings.totalBlocked };
 }
 
-ipcMain.handle('adblock:get', () => adblockState());
-ipcMain.handle('adblock:set', (_e, on) => {
+uiHandle('adblock:get', () => adblockState());
+uiHandle('adblock:set', (_e, on) => {
   settings.adblock = !!on;
   saveSettings();
   if (blocker) {
@@ -402,6 +461,11 @@ function setupPermissions(ses) {
       cb(ok);
     }).catch(() => cb(false));
   });
+  // USB / HID / port série / Bluetooth : refusés (aucun site n'y a accès)
+  ses.setDevicePermissionHandler(() => false);
+  ses.on('select-hid-device', (e, _d, cb) => { e.preventDefault(); cb(); });
+  ses.on('select-serial-port', (e, _l, _w, cb) => { e.preventDefault(); cb(''); });
+  ses.on('select-usb-device', (e, _d, cb) => { e.preventDefault(); cb(); });
   ses.setPermissionCheckHandler((_wc, permission, origin) => {
     if (ALWAYS.has(permission)) return true;
     try { return settings.permissions[new URL(origin).origin + '|' + permission] === true; } catch { return false; }
@@ -423,6 +487,11 @@ function uniquePath(dir, name) {
 
 function setupDownloads(ses) {
   ses.on('will-download', (_e, item) => {
+    if (security.isDangerous(item.getURL())) {
+      item.cancel();
+      toUI('toast', '⛔ Téléchargement bloqué : il provient d\u2019un site signalé comme dangereux');
+      return;
+    }
     const id = ++dlSeq;
     const file = uniquePath(app.getPath('downloads'), item.getFilename());
     item.setSavePath(file);
@@ -439,17 +508,49 @@ function setupDownloads(ses) {
     };
     send('progressing', true);
     item.on('updated', (_ev, state) => send(item.isPaused() ? 'paused' : state));
-    item.once('done', (_ev, state) => send(state, true));
+    item.once('done', (_ev, state) => {
+      if (state === 'completed') markOfTheWeb(file, item.getURL());
+      send(state, true);
+    });
   });
 }
 
-ipcMain.on('download:open', (_e, id) => { const d = downloads.get(id); if (d) shell.openPath(d.file); });
-ipcMain.on('download:show', (_e, id) => { const d = downloads.get(id); if (d) shell.showItemInFolder(d.file); });
-ipcMain.on('download:cancel', (_e, id) => { const d = downloads.get(id); if (d) d.item.cancel(); });
-ipcMain.on('download:folder', () => shell.openPath(app.getPath('downloads')));
+// Fichiers qui peuvent lancer un programme
+const RISKY = /\.(exe|msi|msix|appx|bat|cmd|com|scr|pif|ps1|psm1|vbs|vbe|js|jse|wsf|wsh|hta|cpl|jar|lnk|reg|dll|sys|iso|img|vhd|vhdx|application|appref-ms|msc|gadget|inf|ins|isp|scf|url|xll|xlam|docm|xlsm|pptm)$/i;
+
+// « Marque du Web » : Windows SmartScreen et Office savent que le fichier vient d'Internet
+function markOfTheWeb(file, url) {
+  if (process.platform !== 'win32') return;
+  let safeUrl = '';
+  try { const u = new URL(url); if (/^https?:$/.test(u.protocol)) safeUrl = u.origin + u.pathname; } catch {}
+  try {
+    fs.writeFileSync(file + ':Zone.Identifier', `[ZoneTransfer]\r\nZoneId=3\r\n${safeUrl ? 'HostUrl=' + safeUrl + '\r\n' : ''}`);
+  } catch {}
+}
+
+uiOn('download:open', async (_e, id) => {
+  const d = downloads.get(id);
+  if (!d) return;
+  if (RISKY.test(d.file)) {
+    const r = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: APP_NAME,
+      message: `Ouvrir « ${path.basename(d.file)} » ?`,
+      detail: 'Ce type de fichier peut lancer un programme sur ton ordinateur. Ouvre-le seulement si tu fais confiance au site d\u2019où il vient.',
+      buttons: ['Ouvrir quand même', 'Annuler'],
+      defaultId: 1,
+      cancelId: 1
+    });
+    if (r.response !== 0) return;
+  }
+  shell.openPath(d.file);
+});
+uiOn('download:show', (_e, id) => { const d = downloads.get(id); if (d) shell.showItemInFolder(d.file); });
+uiOn('download:cancel', (_e, id) => { const d = downloads.get(id); if (d) d.item.cancel(); });
+uiOn('download:folder', () => shell.openPath(app.getPath('downloads')));
 
 // ---------- Suggestions de recherche Google ----------
-ipcMain.handle('suggest', async (_e, q) => {
+uiHandle('suggest', async (_e, q) => {
   try {
     const r = await net.fetch(
       'https://suggestqueries.google.com/complete/search?client=firefox&hl=fr&ie=utf-8&oe=utf-8&q=' + encodeURIComponent(q)
@@ -463,20 +564,20 @@ ipcMain.handle('suggest', async (_e, q) => {
 
 // ---------- Mises à jour ----------
 const updater = require('./updater');
-ipcMain.handle('update:get', () => updater.getState());
-ipcMain.handle('update:check', () => updater.check(true));
-ipcMain.handle('update:install', () => updater.installNow());
+uiHandle('update:get', () => updater.getState());
+uiHandle('update:check', () => updater.check(true));
+uiHandle('update:install', () => updater.installNow());
 
-ipcMain.on('fullscreen',() => { if (mainWindow) mainWindow.setFullScreen(!mainWindow.isFullScreen()); });
-ipcMain.handle('app:info', () => ({
+uiOn('fullscreen',() => { if (mainWindow) mainWindow.setFullScreen(!mainWindow.isFullScreen()); });
+uiHandle('app:info', () => ({
   version: app.getVersion(),
   chrome: process.versions.chrome,
   electron: process.versions.electron
 }));
 
 // ---------- Préférences (page Paramètres, favoris…) ----------
-ipcMain.handle('prefs:get', () => prefs());
-ipcMain.handle('prefs:set', (_e, patch) => {
+uiHandle('prefs:get', () => prefs());
+uiHandle('prefs:set', (_e, patch) => {
   for (const k of PREF_KEYS) if (patch && k in patch) settings[k] = patch[k];
   saveSettings();
   toUI('prefs', prefs());
@@ -496,14 +597,14 @@ function waitForTab(url, active) {
     setTimeout(() => { if (pendingTabs.delete(id)) reject(new Error('timeout')); }, 15000);
   });
 }
-ipcMain.on('ext:tab-created', (_e, { reqId, wcId }) => {
+uiOn('ext:tab-created', (_e, { reqId, wcId }) => {
   const resolve = pendingTabs.get(reqId);
   if (!resolve) return;
   pendingTabs.delete(reqId);
   const wc = webContents.fromId(wcId);
   if (wc) resolve([wc, mainWindow]);
 });
-ipcMain.on('ext:tab-selected', (_e, wcId) => {
+uiOn('ext:tab-selected', (_e, wcId) => {
   const wc = webContents.fromId(wcId);
   if (wc && extensions) { try { extensions.selectTab(wc); } catch {} }
 });
@@ -559,8 +660,8 @@ async function initExtensions() {
     evSrc.on('extension-loaded', (_e, ext) => { notify(); toUI('toast', `🧩 « ${ext.name} » est installée`); });
     evSrc.on('extension-unloaded', notify);
 
-    ipcMain.handle('ext:list', () => extList());
-    ipcMain.handle('ext:remove', async (_e, id) => {
+    uiHandle('ext:list', () => extList());
+    uiHandle('ext:remove', async (_e, id) => {
       try { await uninstallExtension(id, { session: ses }); } catch (err) {
         try { (ses.extensions || ses).removeExtension(id); } catch {}
       }
@@ -569,9 +670,49 @@ async function initExtensions() {
     notify();
   } catch (err) {
     console.error('Extensions indisponibles :', err);
-    ipcMain.handle('ext:list', () => []);
-    ipcMain.handle('ext:remove', () => []);
+    uiHandle('ext:list', () => []);
+    uiHandle('ext:remove', () => []);
   }
+}
+
+// ---------- Sécurité : pages d'alerte, effacement des données, autorisations ----------
+const security = require('./security');
+uiHandle('security:check', (_e, url) => security.checkUrl(String(url || '')));
+uiOn('security:proceed', (_e, wcId, kind, url) => {
+  if ((kind === 'danger' || kind === 'http') && typeof url === 'string' && /^https?:/i.test(url)) security.proceed(wcId, kind, url);
+});
+uiHandle('security:info', () => ({ blockedSites: security.blockedCount() }));
+uiHandle('data:clear', async (_e, what) => {
+  const ses = session.defaultSession;
+  const storages = [];
+  if (what && what.cookies) storages.push('cookies', 'localstorage', 'indexdb', 'websql', 'serviceworkers', 'cachestorage', 'filesystem', 'shadercache');
+  if (storages.length) await ses.clearStorageData({ storages });
+  if (what && what.cache) { await ses.clearCache(); await ses.clearHostResolverCache(); }
+  if (what && what.permissions) { settings.permissions = {}; saveSettings(); }
+  if (what && what.cookies) await ses.clearAuthCache();
+  return true;
+});
+uiHandle('perms:list', () => Object.entries(settings.permissions).map(([k, v]) => {
+  const [origin, permission] = k.split('|');
+  return { key: k, origin, permission, allowed: v };
+}));
+uiHandle('perms:revoke', (_e, key) => { delete settings.permissions[key]; saveSettings(); return true; });
+
+function runSelfTest() {
+  if (!SELFTEST) return;
+  const fail = (why) => { console.error('SELFTEST FAIL', why); app.exit(1); };
+  setTimeout(() => fail('timeout'), 45000);
+  mainWindow.webContents.once('did-finish-load', () => setTimeout(async () => {
+    try {
+      const ok = await mainWindow.webContents.executeJavaScript(
+        `!!(window.maxou && typeof createTab === 'function' && document.querySelectorAll('.tab').length > 0 && customElements.get('browser-action-list'))`);
+      if (!ok) return fail('interface');
+      const sandboxed = await mainWindow.webContents.executeJavaScript(`typeof require === 'undefined' && typeof process === 'undefined'`);
+      if (!sandboxed) return fail('sandbox');
+      console.log('SELFTEST OK');
+      app.exit(0);
+    } catch (err) { fail(err.message); }
+  }, 6000));
 }
 
 // ---------- Démarrage ----------
@@ -579,10 +720,16 @@ app.whenReady().then(() => {
   loadSettings();
   Menu.setApplicationMenu(null);
   const ses = session.defaultSession;
+  security.init({ getSettings: () => settings, toUI });
+  security.setupSessionHeaders(ses);
+  ses.setSpellCheckerEnabled(false);
+  // Petite retouche invisible sur la page de connexion Google (voir page-preload.js)
+  ses.registerPreloadScript({ id: 'maxou-page', type: 'frame', filePath: path.join(__dirname, 'page-preload.js') });
   setupPermissions(ses);
   setupDownloads(ses);
   initExtensions().finally(() => {});
   createWindow();
+  runSelfTest();
   initAdblock();
   updater.init((s) => toUI('update', s));
 });
