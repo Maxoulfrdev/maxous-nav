@@ -1,0 +1,65 @@
+{
+  "name": "maxous-nav",
+  "productName": "Maxou's Nav",
+  "version": "1.1.0",
+  "description": "Maxou's Nav — navigateur rapide avec bloqueur de pubs intégré",
+  "author": "Maxou",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "dependencies": {
+    "@ghostery/adblocker-electron": "^2.20.3"
+  },
+  "devDependencies": {
+    "electron": "^45.3.4",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "fr.maxou.nav",
+    "productName": "Maxou's Nav",
+    "executableName": "MaxousNav",
+    "copyright": "© 2026 Maxou",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/adblock-engine.bin",
+        "to": "adblock-engine.bin"
+      }
+    ],
+    "asarUnpack": [
+      "node_modules/@ghostery/adblocker-electron-preload/**"
+    ],
+    "electronLanguages": [
+      "fr",
+      "en-US"
+    ],
+    "compression": "maximum",
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "Maxous-Nav-Portable-${version}.${ext}"
+    }
+  },
+  "updates": {
+    "owner": "Maxoulfrdev",
+    "repo": "maxous-nav"
+  }
+}

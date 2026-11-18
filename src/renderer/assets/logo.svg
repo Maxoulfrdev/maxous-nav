@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7C3AED"/>
+      <stop offset="0.55" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.3" cy="0.2" r="0.8">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.35"/>
+      <stop offset="0.6" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="m" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#E0E7FF"/>
+    </linearGradient>
+    <filter id="sh" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#1E1B4B" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="120" fill="url(#bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="120" fill="url(#glow)"/>
+  <!-- orbite -->
+  <ellipse cx="256" cy="262" rx="196" ry="74" fill="none" stroke="#fff" stroke-opacity="0.28" stroke-width="14" transform="rotate(-24 256 262)"/>
+  <!-- M -->
+  <path filter="url(#sh)" fill="url(#m)" d="M128 372 V164 c0-16 20-23 30-10 L256 280 L354 154 c10-13 30-6 30 10 V372 c0 14-11 24-24 24 h-8 c-13 0-24-10-24-24 V262 l-56 72 c-9 12-27 12-36 0 l-56-72 V372 c0 14-11 24-24 24 h-8 c-13 0-24-10-24-24 z"/>
+  <!-- étincelle -->
+  <path fill="#fff" d="M404 92 l9 25 l25 9 l-25 9 l-9 25 l-9 -25 l-25 -9 l25 -9 z"/>
+</svg>
