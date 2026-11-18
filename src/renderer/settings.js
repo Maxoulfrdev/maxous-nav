@@ -157,7 +157,7 @@
     const scroll = main && !section ? main.scrollTop : null;
     view.innerHTML = `
       <nav class="s-nav">
-        <div class="s-brand"><img src="assets/logo.svg" alt=""> Paramètres</div>
+        <div class="s-brand"><img src="assets/logo-small.svg" alt=""> Paramètres</div>
         ${SECTIONS.map(([id, label]) => `<a data-go="${id}" class="${id === currentSection ? 'active' : ''}">${ICONS[id]}${label}</a>`).join('')}
       </nav>
       <div class="s-main"><div class="s-inner">

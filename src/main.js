@@ -117,11 +117,11 @@ function createWindow() {
     icon: path.join(__dirname, 'icon.png'),
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      color: mica ? '#00000000' : '#0D0E19',
+      color: mica ? '#00000000' : '#09091A',
       symbolColor: '#E8EAF2',
       height: 42
     },
-    backgroundColor: mica ? '#00000000' : '#0B0C14',
+    backgroundColor: mica ? '#00000000' : '#06070F',
     ...(mica ? { backgroundMaterial: 'mica' } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.bundle.js'),
@@ -620,6 +620,79 @@ function extList() {
   }));
 }
 
+// ---------- « externally_connectable » : sites autorisés → extension ----------
+// Un motif Chrome (« https://*.proton.me/* ») correspond-il à cette adresse ?
+function matchPattern(pattern, url) {
+  try {
+    if (pattern === '<all_urls>') return false; // jamais tous les sites
+    const m = /^(\*|https?):\/\/(\*|\*\.[^/*]+|[^/*]+)(\/.*)$/.exec(pattern);
+    if (!m) return false;
+    const u = new URL(url);
+    const scheme = u.protocol.slice(0, -1);
+    if (m[1] === '*' ? !['http', 'https'].includes(scheme) : m[1] !== scheme) return false;
+    const host = u.hostname.toLowerCase();
+    const ph = m[2].toLowerCase();
+    if (ph === '*') return false; // trop large, refusé
+    if (ph.startsWith('*.')) { const base = ph.slice(2); if (host !== base && !host.endsWith('.' + base)) return false; }
+    else if (host !== ph) return false;
+    const re = new RegExp('^' + m[3].split('*').map((x) => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$');
+    return re.test(u.pathname + u.search);
+  } catch { return false; }
+}
+function extsAllowing(url) {
+  if (!url || !/^https?:/i.test(url)) return [];
+  const ses = session.defaultSession;
+  const all = (ses.extensions && ses.extensions.getAllExtensions) ? ses.extensions.getAllExtensions() : [];
+  return all.filter((ext) => {
+    const ec = ext.manifest && ext.manifest.externally_connectable;
+    return ec && Array.isArray(ec.matches) && ec.matches.some((p) => matchPattern(p, url));
+  }).map((ext) => ext.id);
+}
+
+const ecPending = new Map();
+let ecSeq = 0;
+function setupExternallyConnectable(ses) {
+  const hooked = new WeakSet();
+  ses.serviceWorkers.on('running-status-changed', ({ versionId, runningStatus }) => {
+    if (runningStatus !== 'starting' && runningStatus !== 'running') return;
+    const sw = ses.serviceWorkers.getWorkerFromVersionID(versionId);
+    if (!sw || hooked.has(sw) || !String(sw.scope).startsWith('chrome-extension://')) return;
+    hooked.add(sw);
+    sw.ipc.on('maxou-ext:ec-reply', (_e, reqId, ok, response) => {
+      const p = ecPending.get(reqId);
+      if (!p || p.scope !== sw.scope) return;
+      ecPending.delete(reqId);
+      clearTimeout(p.timer);
+      p.resolve(ok ? { ok: true, response } : { ok: false, error: typeof response === 'string' ? response : undefined });
+    });
+  });
+
+  // La page demande à quelles extensions elle peut parler (au chargement)
+  ipcMain.on('maxou-ext:ec-ids', (e) => {
+    try { e.returnValue = extsAllowing(e.senderFrame && e.senderFrame.url); } catch { e.returnValue = []; }
+  });
+
+  ipcMain.handle('maxou-ext:ec-send', async (e, extId, message) => {
+    const url = e.senderFrame && e.senderFrame.url;
+    if (!extsAllowing(url).includes(extId)) return { ok: false };
+    const scope = `chrome-extension://${extId}/`;
+    let sw;
+    try { sw = await ses.serviceWorkers.startWorkerForScope(scope); } catch { return { ok: false }; }
+    const reqId = ++ecSeq;
+    const u = new URL(url);
+    const sender = {
+      url, origin: u.origin, frameId: e.senderFrame && e.senderFrame.parent ? 1 : 0,
+      tab: { id: e.sender.id, url: e.sender.getURL(), active: true, index: 0, windowId: 1, incognito: false, pinned: false, highlighted: true }
+    };
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => { ecPending.delete(reqId); resolve({ ok: false }); }, 20000);
+      ecPending.set(reqId, { resolve, timer, scope });
+      try { sw.send('maxou-ext:ec-message', reqId, message, sender); }
+      catch { clearTimeout(timer); ecPending.delete(reqId); resolve({ ok: false }); }
+    });
+  });
+}
+
 async function initExtensions() {
   try {
     const { ElectronChromeExtensions } = require('electron-chrome-extensions');
@@ -638,6 +711,10 @@ async function initExtensions() {
       }
     });
     ElectronChromeExtensions.handleCRXProtocol(ses);
+
+    // Service worker des extensions : messages venant des sites autorisés (voir ext-compat.preload.js)
+    ses.registerPreloadScript({ id: 'maxou-ext-compat', type: 'service-worker', filePath: path.join(__dirname, 'ext-compat.preload.js') });
+    setupExternallyConnectable(ses);
 
     await installChromeWebStore({
       session: ses,

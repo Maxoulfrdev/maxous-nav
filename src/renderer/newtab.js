@@ -103,18 +103,50 @@ document.getElementById('reset-tiles').onclick = (e) => {
 
 render();
 
-// Salutation + heure
+// Heure + salutation
+const clock = document.getElementById('clock');
 const greet = document.getElementById('greet');
 function tick() {
   const d = new Date();
   const h = d.getHours();
   const hello = h < 5 ? 'Bonne nuit' : h < 18 ? 'Bonjour' : 'Bonsoir';
-  const time = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  clock.textContent = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
   const day = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   greet.innerHTML = '';
-  greet.append(`${hello} Maxou · `);
-  const b = document.createElement('b'); b.textContent = time; greet.append(b);
-  greet.append(` · ${day}`);
+  const b = document.createElement('b'); b.textContent = `${hello} Maxou`; greet.append(b, ` · ${day}`);
 }
 tick();
-setInterval(tick, 10000);
+setInterval(tick, 5000);
+
+// Ciel étoilé (dessiné une seule fois, redessiné si la fenêtre change de taille)
+const canvas = document.getElementById('stars');
+function drawStars() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = innerWidth, h = innerHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const n = Math.round((w * h) / 5200);
+  for (let i = 0; i < n; i++) {
+    const x = rnd() * w, y = rnd() * h, r = rnd() < 0.92 ? rnd() * 0.9 + 0.2 : rnd() * 1.4 + 0.8;
+    const tint = rnd();
+    ctx.fillStyle = tint < 0.15 ? 'rgba(165,243,252,' : tint < 0.3 ? 'rgba(233,213,255,' : 'rgba(255,255,255,';
+    ctx.fillStyle += (0.25 + rnd() * 0.7).toFixed(2) + ')';
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+}
+drawStars();
+let rs; addEventListener('resize', () => { clearTimeout(rs); rs = setTimeout(drawStars, 150); });
+
+// Quelques étoiles qui scintillent
+const tw = document.getElementById('twinkles');
+for (let i = 0; i < 14; i++) {
+  const s = document.createElement('i');
+  s.style.left = (Math.random() * 100).toFixed(1) + 'vw';
+  s.style.top = (Math.random() * 70).toFixed(1) + 'vh';
+  s.style.animationDelay = (-Math.random() * 4).toFixed(2) + 's';
+  s.style.animationDuration = (3 + Math.random() * 4).toFixed(2) + 's';
+  tw.appendChild(s);
+}

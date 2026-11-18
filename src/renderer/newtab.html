@@ -8,14 +8,17 @@
   <link rel="stylesheet" href="newtab.css">
 </head>
 <body>
-  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
-  <div class="grain"></div>
+  <canvas id="stars" aria-hidden="true"></canvas>
+  <div class="nebula n1"></div><div class="nebula n2"></div><div class="nebula n3"></div>
+  <div class="twinkles" id="twinkles" aria-hidden="true"></div>
+  <div class="horizon" aria-hidden="true"></div>
+
+  <header class="corner">
+    <img src="assets/logo-small.svg" alt=""><span>Maxou's Nav</span>
+  </header>
 
   <main>
-    <div class="brand">
-      <img src="assets/logo.svg" alt="" class="logo">
-      <h1>Maxou's Nav</h1>
-    </div>
+    <div class="clock" id="clock">--:--</div>
     <p id="greet" class="greet"></p>
 
     <form action="https://www.google.com/search" method="get" class="search">
@@ -34,7 +37,7 @@
     <nav class="tiles" id="tiles"></nav>
   </main>
 
-  <footer>Protégé par le bloqueur de pubs intégré · <a href="#" id="reset-tiles">Raccourcis par défaut</a></footer>
+  <footer><span class="dot"></span>Protégé : pubs, traqueurs et sites dangereux bloqués · <a href="#" id="reset-tiles">Raccourcis par défaut</a></footer>
 
   <div id="add-dialog" hidden>
     <form id="add-form" class="dlg">
